@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>俄罗斯方块</title>
+    <style>
+        body {
+            background: #2c3e50;
+            display: flex;
+            justify-content: center;
+            font-family: Arial;
+        }
+        #game-container {
+            display: flex;
+            gap: 20px;
+            margin-top: 30px;
+        }
+        canvas {
+            border: 3px solid #34495e;
+            border-radius: 5px;
+        }
+        .game-info {
+            color: white;
+            padding: 15px;
+            background: #34495e;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-board" width="300" height="600"></canvas>
+        // 在游戏信息面板添加重新开始按钮（约37行）
+        <div class="game-info">
+            <h2>得分: <span id="score">0</span></h2>
+            <button id="pauseBtn" style="margin-bottom: 15px;">暂停游戏</button>
+            <button id="restartBtn" style="margin-bottom: 15px;">重新开始</button>
+            <p>下一个方块：</p>
+            <canvas id="next-piece" width="120" height="120"></canvas>
+            <p>操作说明：</p>
+            <ul>
+                <li>← → : 左右移动</li>
+                <li>↑ : 旋转方块</li>
+                <li>↓ : 加速下落</li>
+                <li>空格 : 直接坠落</li>
+            </ul>
+        </div>
+    </div>
+
+
+<script>
+const TETROMINOES = [
+    [[[1,1,1,1]], '#1abc9c'], // I型
+    [[[1,1],[1,1]], '#f1c40f'], // O型
+    [[[0,1,0],[1,1,1]], '#9b59b6'], // T型
+    [[[1,0],[1,0],[1,1]], '#3498db'], // L型
+    [[[0,1],[0,1],[1,1]], '#e74c3c'], // J型
+    [[[1,1,0],[0,1,1]], '#2ecc71'], // S型
+    [[[0,1,1],[1,1,0]], '#e67e22']  // Z型
+];
+
+const COLS = 10;
+const ROWS = 20;
+// 在全局变量区域（约62行）
+const BLOCK_SIZE = 30;
+let score = 0;
+let isPaused = false;  // 取消注释并确保这是唯一的声明位置
+let board = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+let dropInterval = 500;
+let lastDrop = 0;
+
+const canvas = document.getElementById('game-board');
+const ctx = canvas.getContext('2d');
+const nextCanvas = document.getElementById('next-piece');
+const nextCtx = nextCanvas.getContext('2d');
+
+let currentPiece = null;
+let nextPiece = null;
+let posX = 3, posY = 0;
+
+function createPiece() {
+    const [shape, color] = TETROMINOES[Math.floor(Math.random() * 7)];
+    return { 
+        shape: shape.map(row => [...row]),
+        color,
+        rotation: 0
+    };
+}
+
+function drawBlock(ctx, x, y, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE-1, BLOCK_SIZE-1);
+}
+
+function drawBoard() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 绘制当前棋盘
+    for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+            if (board[y][x]) {
+                drawBlock(ctx, x, y, board[y][x]);
+            }
+        }
+    }
+    
+    // 绘制当前方块
+    if (currentPiece) {
+        currentPiece.shape.forEach((row, y) => {
+            row.forEach((value, x) => {
+                if (value) {
+                    drawBlock(ctx, x + posX, y + posY, currentPiece.color);
+                }
+            });
+        });
+    }
+}
+
+function drawNextPiece() {
+    nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+    const offsetX = (4 - nextPiece.shape[0].length) / 2;
+    
+    nextPiece.shape.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value) {
+                drawBlock(nextCtx, x + offsetX, y + 1, nextPiece.color);
+            }
+        });
+    });
+}
+
+function isValidMove(piece, newX, newY) {
+    return piece.shape.every((row, dy) => {
+        return row.every((value, dx) => {
+            let x = newX + dx;
+            let y = newY + dy;
+            return (
+                value === 0 ||
+                (x >= 0 && x < COLS && y < ROWS && !board[y][x])
+            );
+        });
+    });
+}
+
+function rotatePiece(piece) {
+    const newShape = piece.shape[0].map((_, i) =>
+        piece.shape.map(row => row[i]).reverse()
+    );
+    return { ...piece, shape: newShape };
+}
+
+function mergePiece() {
+    currentPiece.shape.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value) {
+                board[y + posY][x + posX] = currentPiece.color;
+            }
+        });
+    });
+}
+
+function clearLines() {
+    let linesCleared = 0;
+    
+    for (let y = ROWS - 1; y >= 0; y--) {
+        if (board[y].every(cell => cell !== 0)) {
+            board.splice(y, 1);
+            board.unshift(Array(COLS).fill(0));
+            linesCleared++;
+            y++; // 重新检查当前行
+        }
+    }
+    
+    if (linesCleared) {
+        score += [100, 300, 500, 800][linesCleared - 1];
+        document.getElementById('score').textContent = score;
+    }
+}
+
+function gameOver() {
+    alert(`游戏结束！得分: ${score}`);
+    board = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+    score = 0;
+    document.getElementById('score').textContent = score;
+}
+
+// 修复update函数参数传递问题（原修改后的update函数）
+function update(timestamp) {
+    if (!currentPiece) {
+        currentPiece = nextPiece || createPiece();
+        nextPiece = createPiece();
+        posX = 3;
+        posY = 0;
+        drawNextPiece();
+        lastDrop = timestamp;
+    }
+    
+    if (timestamp - lastDrop > dropInterval) {
+        if (isValidMove(currentPiece, posX, posY + 1)) {
+            posY++;
+        } else {
+            mergePiece();
+            clearLines();
+            currentPiece = null;
+            if (!isValidMove(nextPiece, 3, 0)) {
+                gameOver();
+            }
+        }
+        lastDrop = timestamp;
+    }
+}
+
+// 修复游戏循环参数问题（原gameLoop函数）
+// 添加暂停状态变量
+// 删除文件末尾的重复声明（约293行）
+// 找到并删除以下重复声明：
+// let isPaused = false;
+
+// 修改游戏循环函数保持持续运行（约297行）
+function gameLoop(timestamp) {
+    if (!isPaused) {
+        update(timestamp);
+    }
+    drawBoard();
+    requestAnimationFrame(gameLoop);
+}
+
+// 修复初始化流程（文件末尾）
+document.addEventListener('DOMContentLoaded', () => {
+    // 按钮事件绑定
+    const pauseBtn = document.getElementById('pauseBtn');
+    pauseBtn.addEventListener('click', function() {
+        isPaused = !isPaused;
+        this.textContent = isPaused ? '继续游戏' : '暂停游戏';
+        if (!isPaused) {
+            lastDrop = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+    });
+
+    // 键盘事件绑定
+    document.addEventListener('keydown', (e) => {
+        if (isPaused) return;
+        
+        switch(e.key) {
+            case 'ArrowLeft':
+                if (currentPiece && isValidMove(currentPiece, posX - 1, posY)) posX--;
+                break;
+            case 'ArrowRight':
+                if (currentPiece && isValidMove(currentPiece, posX + 1, posY)) posX++;
+                break;
+            case 'ArrowUp': {
+                if (!currentPiece) return;
+                const rotated = rotatePiece(currentPiece);
+                if (isValidMove(rotated, posX, posY)) currentPiece = rotated;
+                break;
+            }
+            case 'ArrowDown':
+                if (currentPiece && isValidMove(currentPiece, posX, posY + 1)) posY++;
+                break;
+            case ' ':
+                if (!currentPiece) return;
+                while (isValidMove(currentPiece, posX, posY + 1)) posY++;
+                update(performance.now());
+                break;
+        }
+    });
+
+    // 游戏初始化
+    // 添加重新开始按钮功能
+    document.getElementById('restartBtn').addEventListener('click', () => {
+        // 重置游戏状态
+        board = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+        score = 0;
+        currentPiece = null;
+        nextPiece = createPiece();
+        isPaused = false;
+        
+        // 更新界面
+        document.getElementById('score').textContent = score;
+        document.getElementById('pauseBtn').textContent = '暂停游戏';
+        drawBoard();
+        
+        // 重启游戏循环
+        requestAnimationFrame(gameLoop);
+    });
+    requestAnimationFrame(gameLoop);
+});
+//Deepseek荣誉出品
+//Mr.he监制
+//Ms.shi验收
+//编辑IDE：trae
+//编辑时间：2025年3月23日
+//编辑地点：中国濮阳
+//名称灵感：Deepseek
+//版权所有：jimmy593(Mr.he)
+//github首发
+//完
+</script>
+</body>
+</html>
